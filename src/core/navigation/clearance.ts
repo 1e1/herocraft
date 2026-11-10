@@ -124,3 +124,4 @@ export class NavigationAnalyzer {
     return clearance;
   }
 }
+

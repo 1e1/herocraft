@@ -4,13 +4,13 @@
  */
 import { PRNG } from '../math/prng';
 import { SimplexNoise } from '../math/noise';
+import { FunctionalTopologyGenerator } from './functional-topology';
 import { GeologyGenerator } from './geology';
 import { ErosionSimulator } from './erosion';
 import { HydrologyGenerator } from './water';
 import { BiomeGenerator } from './biomes';
 import { PropsGenerator } from './props';
 import { NavigationAnalyzer } from '../navigation/clearance';
-import { AStarPathfinder } from '../navigation/pathfinding';
 import { 
   GeneratedMap, 
   MapGenOptions, 
@@ -42,27 +42,40 @@ export class MapGenerator {
     const hydraulicDrops = options.hydraulicDroplets ?? 3000;
     const treeDensity = options.treeDensity ?? 0.12;
 
-    // 1. Géologie de base
-    const geology = new GeologyGenerator(prng, noise);
-    let elevation = geology.generateBaseElevation(chunkX, chunkY, options.roughness ?? 1.0);
+    // 1. [SPEC-TOP-001] Topologie fonctionnelle HeroQuest (Salles & Couloirs)
+    const topoGen = new FunctionalTopologyGenerator(prng);
+    const topology = topoGen.generateLayout();
 
-    // 2. Érosion thermique
+    // 2. [SPEC-GEO-002] & [SPEC-GEO-006] Géologie, Lithologie et Cataclysme remarquable
+    const geology = new GeologyGenerator(prng, noise);
+    const geoResult = geology.generateGeology(
+      topology,
+      chunkX,
+      chunkY,
+      options.cataclysm,
+      options.roughness ?? 1.0
+    );
+    let elevation = geoResult.elevation;
+    const lithology = geoResult.lithology;
+    const cataclysm = geoResult.cataclysm;
+
+    // 3. Érosion thermique
     const erosion = new ErosionSimulator(prng);
     if (thermalPasses > 0) {
       elevation = erosion.simulateThermalErosion(elevation, thermalPasses, MAP_CONFIG.CLIFF_THRESHOLD);
     }
 
-    // 3. Érosion hydraulique
+    // 4. Érosion hydraulique
     if (hydraulicDrops > 0) {
       const erosionResult = erosion.simulateHydraulicErosion(elevation, hydraulicDrops);
       elevation = erosionResult.heightmap;
     }
 
-    // 4. Hydrologie & masses d'eau
+    // 5. Hydrologie & masses d'eau
     const hydrology = new HydrologyGenerator(prng);
     const { waterMap, shallowWaterMap, riverMap } = hydrology.generateHydrology(elevation, waterLevel);
 
-    // 5. Biomes & Climat (1 à 4 biomes)
+    // 6. Biomes & Climat (1 à 4 biomes)
     const biomes = new BiomeGenerator(noise);
     const { dominantBiome, weights, temperatureMap, moistureMap } = biomes.generateBiomes(
       elevation,
@@ -72,10 +85,10 @@ export class MapGenerator {
       chunkY
     );
 
-    // 6. Analyse des pentes & falaises
+    // 7. Analyse des pentes & falaises
     const { slopeMap, cliffMap } = NavigationAnalyzer.computeSlopesAndCliffs(elevation, MAP_CONFIG.CLIFF_THRESHOLD);
 
-    // 7. Végétation & Décors
+    // 8. Végétation & Décors
     const propsGen = new PropsGenerator(prng);
     const props = propsGen.generateProps(
       elevation,
@@ -86,29 +99,37 @@ export class MapGenerator {
       treeDensity
     );
 
-    // 8. Franchissabilité & Clearance
+    // 9. Franchissabilité & Clearance
     let walkable = NavigationAnalyzer.computeWalkability(waterMap, shallowWaterMap, cliffMap, props);
     let clearance = NavigationAnalyzer.computeClearanceField(walkable);
 
-    // 9. Recherche d'une zone de Spawn pour le héros 2x2
-    // Idéalement sur le bord Ouest ou Sud-Ouest, sur une zone avec clearance >= 2
-    let heroSpawn = { x: 4, y: Math.floor(height / 2) };
+    // 10. Recherche d'une zone de Spawn pour le héros 2x2
+    // On cible la salle identifiée 'SPAWN'
+    const spawnRoom = topology.rooms.find(r => r.type === 'SPAWN') ?? topology.rooms[0];
+    let heroSpawn = { x: spawnRoom.centerX, y: spawnRoom.centerY };
     let foundSpawn = false;
 
-    for (let x = 3; x < 14; x++) {
-      for (let y = 3; y < height - 4; y++) {
-        if (clearance[y][x] >= 2 && !waterMap[y][x]) {
-          heroSpawn = { x, y };
-          foundSpawn = true;
-          break;
+    // Recherche dans la zone de la salle de spawn
+    for (let r = 0; r <= 3; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const sx = spawnRoom.centerX + dx;
+          const sy = spawnRoom.centerY + dy;
+          if (sx >= 1 && sx < width - 2 && sy >= 1 && sy < height - 2) {
+            if (clearance[sy][sx] >= 2 && !waterMap[sy][sx]) {
+              heroSpawn = { x: sx, y: sy };
+              foundSpawn = true;
+              break;
+            }
+          }
         }
+        if (foundSpawn) break;
       }
       if (foundSpawn) break;
     }
 
-    // Si aucun spawn naturel parfait, on dégage 2x2 cases
     if (!foundSpawn) {
-      heroSpawn = { x: 4, y: 14 };
+      // Dégagement forcé si nécessaire
       for (let dy = 0; dy < 2; dy++) {
         for (let dx = 0; dx < 2; dx++) {
           props[heroSpawn.y + dy][heroSpawn.x + dx] = null;
@@ -119,48 +140,24 @@ export class MapGenerator {
       clearance = NavigationAnalyzer.computeClearanceField(walkable);
     }
 
-    // 10. Sélection de l'objectif de carte [SPEC-BLD-001]
-    // Selon le relief dominant : si proche de l'eau -> PIROGUE, si haut plateau -> AIRSHIP, sinon CAMP
+    // 11. Emplacement de l'objectif de mission
+    // Cible la salle 'CAMP_SITE'
+    const campRoom = topology.rooms.find(r => r.type === 'CAMP_SITE') ?? topology.rooms[topology.rooms.length - 1];
     let objectiveType: ObjectiveType = 'CAMP';
-    let objectiveSize = { w: 3, h: 3 };
-    let bestObjectivePos = { x: width - 10, y: Math.floor(height / 2) };
-
-    // Recherche d'un emplacement constructible [SPEC-BLD-002] à l'Est/Nord-Est
-    let maxClearanceFound = 0;
-    for (let x = width - 18; x < width - 4; x++) {
-      for (let y = 4; y < height - 6; y++) {
-        if (clearance[y][x] >= 3 && !waterMap[y][x]) {
-          const elev = elevation[y][x];
-          // Vérifier si un chemin existe depuis le spawn
-          const testPath = AStarPathfinder.findPath(
-            heroSpawn.x, heroSpawn.y,
-            x, y,
-            clearance, elevation, shallowWaterMap, 2
-          );
-
-          if (testPath.found) {
-            bestObjectivePos = { x, y };
-            if (elev > 0.6) {
-              objectiveType = 'AIRSHIP';
-            } else if (elev < 0.35) {
-              objectiveType = 'PIROGUE';
-            } else {
-              objectiveType = 'CAMP';
-            }
-            maxClearanceFound = clearance[y][x];
-            break;
-          }
-        }
-      }
-      if (maxClearanceFound >= 3) break;
+    if (cataclysm.type === 'CRATER') {
+      objectiveType = 'SHELTER';
+    } else if (elevation[campRoom.centerY][campRoom.centerX] > 0.58) {
+      objectiveType = 'AIRSHIP';
+    } else if (elevation[campRoom.centerY][campRoom.centerX] < 0.35) {
+      objectiveType = 'PIROGUE';
     }
 
     const objective: MapObjective = {
       type: objectiveType,
-      x: bestObjectivePos.x,
-      y: bestObjectivePos.y,
-      width: objectiveSize.w,
-      height: objectiveSize.h,
+      x: campRoom.centerX - 1,
+      y: campRoom.centerY - 1,
+      width: 3,
+      height: 3,
       label: objectiveType === 'PIROGUE' 
         ? 'Construction Pirogue côtière' 
         : objectiveType === 'AIRSHIP' 
@@ -168,12 +165,10 @@ export class MapGenerator {
         : 'Établissement du Campement Fortifié'
     };
 
-    // Marquer l'emplacement du camp dans les props pour l'identifier visuellement
     props[objective.y + 1][objective.x + 1] = 'CAMP_FIRE_SITE';
 
-    // 11. Détection des sorties praticables sur les 4 bordures
+    // 12. Détection des sorties praticables
     const exits: MapExit[] = [];
-    // Bordure Est (x = width - 2)
     for (let y = 1; y < height - 2; y++) {
       if (clearance[y][width - 2] >= 2) {
         exits.push({
@@ -186,7 +181,6 @@ export class MapGenerator {
         break;
       }
     }
-    // Bordure Ouest (x = 1)
     for (let y = 1; y < height - 2; y++) {
       if (clearance[y][1] >= 2) {
         exits.push({
@@ -200,15 +194,16 @@ export class MapGenerator {
       }
     }
 
-    // 12. Assemblage du tableau 2D de TileData
+    // 13. Assemblage final
     const tiles: TileData[][] = [];
+    const chokeSet = new Set(topology.chokePoints.map(p => `${p.x},${p.y}`));
+
     for (let y = 0; y < height; y++) {
       const row: TileData[] = [];
       for (let x = 0; x < width; x++) {
         const elev = elevation[y][x];
         const step = Math.min(7, Math.floor(elev * 8));
 
-        // Détection de zone constructible [SPEC-BLD-002]
         const isBuildable = (
           walkable[y][x] && 
           !waterMap[y][x] && 
@@ -225,6 +220,9 @@ export class MapGenerator {
           moisture: moistureMap[y][x],
           biome: dominantBiome[y][x],
           biomeWeights: weights[y][x],
+          lithology: lithology[y][x],
+          roomId: topology.roomMask[y][x] !== -1 ? topology.roomMask[y][x] : undefined,
+          isChokePoint: chokeSet.has(`${x},${y}`),
           isWater: waterMap[y][x],
           isShallowWater: shallowWaterMap[y][x],
           isRiver: riverMap[y][x],
@@ -251,6 +249,8 @@ export class MapGenerator {
       exits,
       heroSpawn,
       objective,
+      cataclysm,
+      rooms: topology.rooms,
       generationDurationMs: durationMs
     };
   }

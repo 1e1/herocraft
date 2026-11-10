@@ -138,3 +138,4 @@ export class SimplexNoise {
     return total / maxValue;
   }
 }
+

@@ -58,15 +58,16 @@ Formalism: Rule-Based Formal Specifications (`[SPEC-<DOMAIN>-<ID>]`)
 ### `[SPEC-GEO-002]` Multi-Stage Pipeline Sequence
 La génération d'une carte s'exécute strictement selon l'ordre séquentiel suivant :
 1. `PRNG Init`
-2. `Plates Partitioning` (Voronoi tectonique)
-3. `Base Topography & Ridges` (Simplex multi-octaves)
-4. `Thermal Erosion` (Relaxation de talus)
-5. `Hydraulic Erosion` (Particules de pluie & sédiments)
-6. `Hydrology & Water Filling` (Lacs, dépressions, cours d'eau)
-7. `Climate Classification` (Moisture / Temperature)
-8. `Biome Assignment & Weight Blending` (1 à 4 biomes)
-9. `Props & Vegetation Scattering` (Poisson-disc sampling)
-10. `NavGrid & Clearance Matrix Computation`
+2. `Functional Layout Partitioning` (`[SPEC-TOP-001]` : Salles & Couloirs HeroQuest)
+3. `Lithology Matrix Assignment` (`[SPEC-GEO-005]` : Dureté des roches & matériaux)
+4. `Cataclysmic Event Injection` (`[SPEC-GEO-006]` : Cratère, Volcan ou Faille de Rift)
+5. `Tectonic Faults & Base Topography` (Voronoi & Crêtes)
+6. `Differential Thermal & Hydraulic Erosion` (Résistance selon lithologie)
+7. `Hydrology & Water Filling` (Lacs, dépressions, cours d'eau)
+8. `Climate Classification` (Moisture / Temperature)
+9. `Biome Assignment & Weight Blending` (1 à 4 biomes)
+10. `Props & Vegetation Scattering` (Poisson-disc sampling)
+11. `NavGrid & Clearance Matrix Computation`
 
 ### `[SPEC-GEO-003]` Tectonic Voronoi Cells
 * **Plate Count**: $P \in [4, 8]$ plaques tectoniques générées par dispersion de germes avec jitter déterministe.
@@ -74,8 +75,34 @@ La génération d'une carte s'exécute strictement selon l'ordre séquentiel sui
 * **Fault Lines**: Les bordures entre deux cellules Voronoi génèrent des zones de surrection (crêtes de collision) ou de subduction (failles/faiblesses fluviales).
 
 ### `[SPEC-GEO-004]` Height Quantization
-* L'altitude continue $h_{raw} \in [0.0, 1.0]$ est discrétisée en **8 paliers topographiques** ($L \in [0, 7]$) pour créer le style de terrasses et dioramas façon Warcraft III / HeroQuest.
+* L'altitude continue $h_{raw} \in [0.0, 1.0]$ peut être discrétisée en **8 paliers topographiques** ($L \in [0, 7]$) pour créer le style de terrasses et dioramas façon Warcraft III / HeroQuest.
 * $L = \lfloor h_{raw} \times 8 \rfloor$.
+
+### `[SPEC-GEO-005]` Lithology & Rock Hardness Strata
+* Chaque zone de la carte se voit attribuer un type de roche géologique avec un coefficient d'érosion et de dureté :
+  1. `LITHO_GRANITE` (Dureté $1.0$) : Crêtes acérées, falaises verticales infranchissables, résiste à l'érosion.
+  2. `LITHO_SANDSTONE` (Dureté $0.6$) : Plateaux étagés, strates horizontales (canyons et mesas).
+  3. `LITHO_ALLUVIUM` (Dureté $0.2$) : Terres meubles, vallées planes, sédiments fluviaux propices aux campements.
+  4. `LITHO_VOLCANIC` (Dureté $0.85$) : Basalte sombre, caldeira, lave séchée et scories.
+  5. `LITHO_METEORIC` (Dureté $0.95$) : Verre d'impact (impactite), suévite, brèches météoritiques.
+
+### `[SPEC-GEO-006]` Cataclysmic Events (Rare Geological Wonders)
+Chaque secteur a une probabilité d'accueillir un cataclysme géologique remarquable :
+1. `CATACLYSM_CRATER` : Cratère d'impact d'astéroïde circulaire avec bourrelet d'éjectas surélevé ($+0.25$), cuvette centrale excavée ($-0.35$) pouvant former un lac d'impact, et cœur de minerai stellaire.
+2. `CATACLYSM_VOLCANO` : Cône volcanique surélevé ($+0.40$) avec cratère sommital effondré et coulées de lave/basalte rayonnantes.
+3. `CATACLYSM_RIFT` : Faille tectonique béante fendant la carte en deux le long d'un axe diagonal, formant un canyon abrupt franchissable uniquement par 1 ou 2 ponts rocheux naturels.
+4. `CATACLYSM_NONE` : Relief tectonique standard avec strates et vallées équilibrées.
+
+---
+
+## 3b. Functional Tabletop Topology (`SPEC-TOP`)
+
+### `[SPEC-TOP-001]` HeroQuest Functional Layout (Rooms, Corridors & Choke Points)
+* **Design Principle**: La carte ne doit pas être une étendue continue uniforme mais un **donjon de plein air** structuré en pièces tactiques et voies d'accès.
+* **Structure Requirements**:
+  * **6 à 9 Salles Naturelles (Rooms / Glades)** : Zones dégagées plates ($5 \times 5$ à $9 \times 9$ cases) adaptées à l'exploration, l'installation de campements, les nids de monstres ou les gisements.
+  * **Murs Naturels (Natural Walls)** : Crêtes montagneuses impénétrables, falaises abruptes ou dépressions aquatiques séparant les salles.
+  * **Couloirs & Goulots d'Étranglement (Choke Points)** : Passages étroits de largeur $2$ à $3$ tuiles (défilés de canyon, cols de montagne, gués fluviaux) que les héros $2 \times 2$ peuvent verrouiller tactiquement.
 
 ---
 
@@ -128,6 +155,11 @@ Le système supporte 4 biomes fondamentaux configurables :
 * Les rivières naissent dans les bassins d'érosion haute altitude et descendent par plus grande pente vers le niveau d'eau le plus bas ou une sortie de carte.
 * Largeur de rivière : 1 tuile (peut être franchie sur les gués désignés).
 
+### `[SPEC-WAT-003]` Dynamic Water Plane & Shore Foam
+* **Water Surface**: L'eau est rendue via un plan 3D semi-transparent indépendant à l'altitude $Y = h_{water} \cdot \text{heightScale}$.
+* **Foam Effect**: Les sommets du plan d'eau en contact avec des tuiles de terre sèche ($h > h_{water}$) génèrent un contour d'écume blanche opaque.
+* **Wave Oscillation**: Une légère ondulation sinusoïdale de surface $y(t) = y_0 + A \cdot \sin(\omega t + \phi)$ anime les étendues d'eau.
+
 ---
 
 ## 7. Navigation, Clearance & Pathfinding (`SPEC-NAV`)
@@ -177,6 +209,14 @@ Une zone de dimensions $W_b \times H_b$ est déclarée `buildable` à l'ancrage 
 3. Zéro obstacle solide (aucun arbre, rocher ou ruine dans l'emprise).
 4. Connectivité garantie : il existe un chemin A* depuis la zone de spawn des héros jusqu'à la zone de construction.
 
+### `[SPEC-BLD-003]` Real-Time Interactive Building Placement
+* **Structure Catalogs**:
+  * `STRUCTURE_CAMP` : $3 \times 3$ tuiles (Feu central, tentes).
+  * `STRUCTURE_PIROGUE` : $2 \times 4$ tuiles (Nécessite au moins 2 tuiles en contact avec l'eau).
+  * `STRUCTURE_AIRSHIP` : $4 \times 4$ tuiles (Nécessite un plateau d'altitude $h \ge 0.50$).
+  * `STRUCTURE_PALISADE` : $1 \times 1$ tuile (Mur défensif bloquant les monstres et les héros).
+* **Dynamic Grid Mutation**: Lors de la pose d'une structure, les tuiles occupées deviennent des obstacles solides, la matrice de franchissabilité $\text{walkable}$ et le champ de dégagement $\text{clearance}$ sont recalculés instantanément, forçant le pathfinding à contourner la construction.
+
 ---
 
 ## 9. Map Transitions & Continuity (`SPEC-TRN`)
@@ -191,6 +231,11 @@ Une zone de dimensions $W_b \times H_b$ est déclarée `buildable` à l'ancrage 
   * La carte suivante générée est le secteur adjacent $(X+1, Y)$.
   * La bordure **Ouest** $(0, y)$ de la nouvelle carte hérite strictement des altitudes $h(53, y)$ et des états de rivière de la carte précédente.
   * Une fonction de transition d'Hermite $S(t) = 3t^2 - 2t^3$ applique un fondu sur une marge de 5 colonnes ($x \in [0, 4]$) pour garantir la continuité géologique absolue.
+
+### `[SPEC-TRN-003]` Exit-to-Entry Spawn Handoff
+* Lorsque le héros franchit la sortie $(53, y_{exit})$ d'une carte :
+  * Sur la carte suivante $(X+1, Y)$, le point d'apparition initial du héros est automatiquement fixé à $(1, y_{exit})$.
+  * Le biome dominant et l'altitude locale sont conservés à l'identique pour assurer une fluidité narrative et sensorielle parfaite.
 
 ---
 
@@ -207,3 +252,9 @@ Une zone de dimensions $W_b \times H_b$ est déclarée `buildable` à l'ancrage 
   * Eau : Turquoise cristalline `#2ab5b5` avec ligne d'écume blanche en bordure.
   * Roche / Falaise : Gris ardoise chaleureux `#6d6978` avec arêtes claires.
   * Végétation : Arbres volumétriques stylisés low-poly avec feuillage touffu et dégradé zénithal.
+
+### `[SPEC-RND-004]` Terraced Stepped Plateaus vs Continuous Relief
+* Le moteur de rendu supporte deux modes d'extrusion du relief :
+  1. **Mode Organique (BotW)** : Maillage triangulé lissé où l'altitude $Y = h(x, y) \cdot \text{heightScale}$ forme des collines douces et des pentes continues.
+  2. **Mode Terrasses (Warcraft III / HeroQuest Tabletop)** : Discrétisation en $K$ paliers horizontaux ($K \in [4, 12]$) reliés par des falaises verticales ou biseautées, donnant l'impression de dalles de jeu superposées.
+

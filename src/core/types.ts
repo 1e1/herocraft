@@ -13,6 +13,33 @@ export const MAP_CONFIG = {
 
 export type BiomeType = 'PLAINS' | 'FOREST' | 'HIGHLANDS' | 'SWAMP';
 
+export type LithologyType = 
+  | 'LITHO_GRANITE' 
+  | 'LITHO_SANDSTONE' 
+  | 'LITHO_ALLUVIUM' 
+  | 'LITHO_VOLCANIC' 
+  | 'LITHO_METEORIC';
+
+export type CataclysmType = 'NONE' | 'CRATER' | 'VOLCANO' | 'RIFT';
+
+export interface CataclysmFeature {
+  type: CataclysmType;
+  centerX: number;
+  centerY: number;
+  radius: number;
+  intensity: number;
+}
+
+export interface FunctionalRoom {
+  id: number;
+  name: string;
+  centerX: number;
+  centerY: number;
+  radiusX: number;
+  radiusY: number;
+  type: 'SPAWN' | 'CAMP_SITE' | 'SANCTUARY' | 'WILD_CLEARING' | 'CATACLYSM_ZONE';
+}
+
 export type PropType = 
   | 'TREE_DECIDUOUS' 
   | 'TREE_PINE' 
@@ -32,6 +59,9 @@ export interface TileData {
   moisture: number;        // [0, 1]
   biome: BiomeType;        // Biome dominant
   biomeWeights: Record<BiomeType, number>; // [SPEC-BIO-002] Poids pour le blending
+  lithology: LithologyType; // [SPEC-GEO-005] Type géologique du sous-sol
+  roomId?: number;         // [SPEC-TOP-001] Salle HeroQuest d'appartenance
+  isChokePoint?: boolean;  // [SPEC-TOP-001] Défilé ou passage stratégique
   isWater: boolean;        // [SPEC-WAT-001]
   isShallowWater: boolean; // Gué franchissable
   isRiver: boolean;        // [SPEC-WAT-002]
@@ -53,6 +83,30 @@ export interface MapExit {
 
 export type ObjectiveType = 'CAMP' | 'PIROGUE' | 'AIRSHIP' | 'SHELTER';
 
+export type StructureType = 
+  | 'STRUCTURE_CAMP' 
+  | 'STRUCTURE_PIROGUE' 
+  | 'STRUCTURE_AIRSHIP' 
+  | 'STRUCTURE_PALISADE';
+
+export interface StructureDefinition {
+  type: StructureType;
+  name: string;
+  width: number;
+  height: number;
+  requiresWater?: boolean;
+  minElevation?: number;
+}
+
+export interface PlacedBuilding {
+  id: string;
+  type: StructureType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface MapObjective {
   type: ObjectiveType;
   x: number;
@@ -72,6 +126,8 @@ export interface GeneratedMap {
   exits: MapExit[];
   heroSpawn: { x: number; y: number };
   objective: MapObjective;
+  cataclysm: CataclysmFeature;
+  rooms: FunctionalRoom[];
   generationDurationMs: number;
 }
 
@@ -80,9 +136,13 @@ export interface MapGenOptions {
   chunkX?: number;
   chunkY?: number;
   activeBiomes?: BiomeType[];
+  cataclysm?: CataclysmType;
   waterLevel?: number;
   thermalErosionPasses?: number;
   hydraulicDroplets?: number;
   roughness?: number;
   treeDensity?: number;
+  terraceMode?: boolean;
+  terraceSteps?: number;
 }
+

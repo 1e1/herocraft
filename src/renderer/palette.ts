@@ -48,5 +48,15 @@ export const COMMON_COLORS = {
   HERO_COLOR: Color3.FromHexString('#3b82f6'),    // Bleu azur du héros
   HERO_ACCENT: Color3.FromHexString('#fbbf24'),   // Or / doré
   OBJECTIVE_COLOR: Color3.FromHexString('#ef4444'),// Rouge balise objectif
-  PATH_RIBBON: Color3.FromHexString('#38bdf8')    // Tracé de pathfinding 2x2
+  PATH_RIBBON: Color3.FromHexString('#38bdf8'),   // Tracé de pathfinding 2x2
+  // Lithologie [SPEC-GEO-005]
+  LITHO_GRANITE: Color3.FromHexString('#4a4752'),
+  LITHO_SANDSTONE: Color3.FromHexString('#b88e58'),
+  LITHO_ALLUVIUM: Color3.FromHexString('#5c853e'),
+  LITHO_VOLCANIC: Color3.FromHexString('#241d21'),
+  LITHO_METEORIC: Color3.FromHexString('#2a5578'),
+  // Cataclysme accents
+  LAVA_GLOW: Color3.FromHexString('#e04b16'),
+  METEOR_CORE: Color3.FromHexString('#00f2fe')
 };
+

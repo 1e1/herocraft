@@ -1,6 +1,6 @@
 /**
- * [SPEC-RND-001] & [SPEC-RND-002] Génération du maillage 3D Diorama
- * Modélisation du terrain avec vertex colors multi-biomes et socle géologique taillé.
+ * [SPEC-RND-001], [SPEC-RND-002], [SPEC-RND-004] Rendu 3D Diorama & Terrasses Tabletop
+ * Supporte le mode terrasses étagées (Warcraft III / HeroQuest) et les calques de diagnostic.
  */
 import { Scene } from '@babylonjs/core/scene';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
@@ -10,15 +10,25 @@ import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { GeneratedMap, MAP_CONFIG, TileData } from '../core/types';
 import { BIOME_PALETTES, COMMON_COLORS } from './palette';
 
-export type DisplayMode = 'BOTW_DIORAMA' | 'HEIGHTMAP' | 'BIOMES' | 'SLOPES' | 'WALKABLE' | 'CLEARANCE';
+export type DisplayMode = 
+  | 'BOTW_DIORAMA' 
+  | 'HEROQUEST_ROOMS' 
+  | 'LITHOLOGY' 
+  | 'HEIGHTMAP' 
+  | 'BIOMES' 
+  | 'SLOPES' 
+  | 'WALKABLE' 
+  | 'CLEARANCE';
 
 export class TerrainMeshBuilder {
   public static createTerrainMesh(
     scene: Scene,
     mapData: GeneratedMap,
     mode: DisplayMode = 'BOTW_DIORAMA',
-    heightScale = 3.5,
-    cellSize = 1.0
+    heightScale = 3.8,
+    cellSize = 1.0,
+    terraceMode = true,
+    terraceSteps = 7
   ): Mesh {
     const width = mapData.width;
     const height = mapData.height;
@@ -31,7 +41,7 @@ export class TerrainMeshBuilder {
 
     const halfW = (width - 1) * 0.5;
     const halfH = (height - 1) * 0.5;
-    const slabBottomY = -2.0; // Profondeur de la tranche géologique
+    const slabBottomY = -2.5;
 
     const getTile = (x: number, y: number): TileData => {
       const cx = Math.max(0, Math.min(width - 1, x));
@@ -39,16 +49,56 @@ export class TerrainMeshBuilder {
       return mapData.tiles[cy][cx];
     };
 
-    // Détermination de la couleur d'une tuile selon le mode actif
+    // Calcul de l'altitude 3D avec option de terrasses Warcraft/HeroQuest [SPEC-RND-004]
+    const computeMeshElevation = (rawElev: number): number => {
+      if (!terraceMode) {
+        return rawElev * heightScale;
+      }
+      // Mode terrasses : discrétisation en paliers avec biseau
+      const stepVal = Math.floor(rawElev * terraceSteps) / terraceSteps;
+      const frac = (rawElev * terraceSteps) - Math.floor(rawElev * terraceSteps);
+      // Courbe en S pour créer des plateaux bien plats reliés par des montées franches
+      const smoothFrac = frac * frac * (3 - 2 * frac);
+      const blended = stepVal + (smoothFrac * 0.25) / terraceSteps;
+      return blended * heightScale;
+    };
+
+    // Détermination de la couleur selon le mode
     const getVertexColor = (tile: TileData): Color3 => {
       switch (mode) {
+        case 'HEROQUEST_ROOMS': {
+          if (tile.isChokePoint) return new Color3(1.0, 0.85, 0.1); // Jaune or pour les goulots d'étranglement
+          if (tile.roomId !== undefined) {
+            const roomColors = [
+              new Color3(0.2, 0.6, 0.9), // Salle 0 (Spawn)
+              new Color3(0.8, 0.4, 0.8), // Salle 1
+              new Color3(0.2, 0.8, 0.4), // Salle 2 (Camp)
+              new Color3(0.9, 0.6, 0.2), // Salle 3
+              new Color3(0.9, 0.3, 0.3), // Salle 4 (Cataclysme)
+              new Color3(0.4, 0.5, 0.9)  // Salle 5
+            ];
+            return roomColors[tile.roomId % roomColors.length];
+          }
+          if (tile.walkable) return new Color3(0.65, 0.55, 0.45); // Couloir praticable
+          return new Color3(0.2, 0.2, 0.25); // Mur / falaise
+        }
+        case 'LITHOLOGY': {
+          switch (tile.lithology) {
+            case 'LITHO_GRANITE': return COMMON_COLORS.LITHO_GRANITE;
+            case 'LITHO_SANDSTONE': return COMMON_COLORS.LITHO_SANDSTONE;
+            case 'LITHO_ALLUVIUM': return COMMON_COLORS.LITHO_ALLUVIUM;
+            case 'LITHO_VOLCANIC': return COMMON_COLORS.LITHO_VOLCANIC;
+            case 'LITHO_METEORIC': return COMMON_COLORS.LITHO_METEORIC;
+          }
+          break;
+        }
         case 'HEIGHTMAP': {
           const h = tile.elevation;
           return new Color3(h, h, h);
         }
         case 'BIOMES': {
           switch (tile.biome) {
-            case 'PLAINS': return new Color3(0.3, 0.8, 0.2);
+            case 'PLAINS': return new Color3(0.35, 0.85, 0.25);
             case 'FOREST': return new Color3(0.85, 0.45, 0.15);
             case 'HIGHLANDS': return new Color3(0.65, 0.6, 0.55);
             case 'SWAMP': return new Color3(0.2, 0.35, 0.3);
@@ -56,18 +106,18 @@ export class TerrainMeshBuilder {
           break;
         }
         case 'SLOPES': {
-          if (tile.isCliff) return new Color3(0.9, 0.15, 0.15); // Rouge vif falaise
+          if (tile.isCliff) return new Color3(0.95, 0.15, 0.15);
           const ratio = Math.min(1.0, tile.slope / MAP_CONFIG.CLIFF_THRESHOLD);
-          return new Color3(ratio, 1.0 - ratio * 0.5, 0.2);
+          return new Color3(ratio, 1.0 - ratio * 0.5, 0.15);
         }
         case 'WALKABLE': {
-          return tile.walkable ? new Color3(0.2, 0.75, 0.3) : new Color3(0.85, 0.2, 0.2);
+          return tile.walkable ? new Color3(0.2, 0.8, 0.35) : new Color3(0.9, 0.2, 0.2);
         }
         case 'CLEARANCE': {
           if (tile.clearance === 0) return new Color3(0.2, 0.2, 0.2);
-          if (tile.clearance === 1) return new Color3(0.8, 0.6, 0.2);
-          if (tile.clearance === 2) return new Color3(0.2, 0.7, 0.9); // Héros 2x2
-          return new Color3(0.4, 0.4, 0.95); // 3+
+          if (tile.clearance === 1) return new Color3(0.85, 0.65, 0.2);
+          if (tile.clearance === 2) return new Color3(0.2, 0.75, 0.95); // Héros 2x2
+          return new Color3(0.4, 0.45, 0.98); // 3+
         }
         case 'BOTW_DIORAMA':
         default: {
@@ -77,6 +127,15 @@ export class TerrainMeshBuilder {
           if (tile.isShallowWater) {
             return COMMON_COLORS.WATER_SHALLOW;
           }
+
+          // Effets cataclysmiques
+          if (tile.lithology === 'LITHO_METEORIC') {
+            return Color3.Lerp(COMMON_COLORS.LITHO_METEORIC, COMMON_COLORS.METEOR_CORE, 0.35);
+          }
+          if (tile.lithology === 'LITHO_VOLCANIC') {
+            return tile.elevation > 0.55 ? COMMON_COLORS.LAVA_GLOW : COMMON_COLORS.LITHO_VOLCANIC;
+          }
+
           if (tile.isCliff) {
             return COMMON_COLORS.CLIFF_EDGE;
           }
@@ -86,28 +145,36 @@ export class TerrainMeshBuilder {
           for (const [biomeKey, w] of Object.entries(tile.biomeWeights)) {
             if (w <= 0) continue;
             const pal = BIOME_PALETTES[biomeKey as keyof typeof BIOME_PALETTES];
-            const tElev = Math.min(1.0, tile.elevation * 1.4);
+            const tElev = Math.min(1.0, tile.elevation * 1.3);
             const groundCol = Color3.Lerp(pal.groundLow, pal.groundHigh, tElev);
             r += groundCol.r * w;
             g += groundCol.g * w;
             b += groundCol.b * w;
           }
+
+          // Si c'est un couloir battu
+          if (tile.walkable && tile.roomId === undefined) {
+            const pathTint = COMMON_COLORS.PATH_WAY;
+            r = r * 0.7 + pathTint.r * 0.3;
+            g = g * 0.7 + pathTint.g * 0.3;
+            b = b * 0.7 + pathTint.b * 0.3;
+          }
+
           return new Color3(r, g, b);
         }
       }
     };
 
-    // 1. Génération de la surface du plateau (grille triangulée)
+    // 1. Surface de la grille
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const tile = getTile(x, y);
         const posX = (x - halfW) * cellSize;
         const posZ = -(y - halfH) * cellSize;
         
-        let posY = tile.elevation * heightScale;
+        let posY = computeMeshElevation(tile.elevation);
         if (tile.isWater && !tile.isShallowWater) {
-          // Eau plane
-          posY = MAP_CONFIG.WATER_LEVEL * heightScale * 0.95;
+          posY = computeMeshElevation(MAP_CONFIG.WATER_LEVEL) * 0.95;
         }
 
         positions.push(posX, posY, posZ);
@@ -118,7 +185,7 @@ export class TerrainMeshBuilder {
       }
     }
 
-    // Triangulation de la surface
+    // Triangulation
     for (let y = 0; y < height - 1; y++) {
       for (let x = 0; x < width - 1; x++) {
         const i0 = y * width + x;
@@ -126,13 +193,12 @@ export class TerrainMeshBuilder {
         const i2 = (y + 1) * width + x;
         const i3 = (y + 1) * width + (x + 1);
 
-        // Deux triangles par quad
         indices.push(i0, i2, i1);
         indices.push(i1, i2, i3);
       }
     }
 
-    // 2. [SPEC-RND-001] Tranche géologique : 4 murs verticaux qui tombent vers le socle
+    // 2. Murs verticaux du diorama (tranche géologique)
     const addSideWall = (edgeCoords: [number, number][]) => {
       for (let i = 0; i < edgeCoords.length - 1; i++) {
         const [x0, y0] = edgeCoords[i];
@@ -143,19 +209,18 @@ export class TerrainMeshBuilder {
 
         const px0 = (x0 - halfW) * cellSize;
         const pz0 = -(y0 - halfH) * cellSize;
-        const py0 = Math.max(t0.elevation * heightScale, 0);
+        const py0 = Math.max(computeMeshElevation(t0.elevation), 0);
 
         const px1 = (x1 - halfW) * cellSize;
         const pz1 = -(y1 - halfH) * cellSize;
-        const py1 = Math.max(t1.elevation * heightScale, 0);
+        const py1 = Math.max(computeMeshElevation(t1.elevation), 0);
 
         const baseIdx = positions.length / 3;
 
-        // 4 sommets du quad vertical
-        positions.push(px0, py0, pz0);           // Sommet haut 0
-        positions.push(px1, py1, pz1);           // Sommet haut 1
-        positions.push(px0, slabBottomY, pz0);   // Bas 0
-        positions.push(px1, slabBottomY, pz1);   // Bas 1
+        positions.push(px0, py0, pz0);
+        positions.push(px1, py1, pz1);
+        positions.push(px0, slabBottomY, pz0);
+        positions.push(px1, slabBottomY, pz1);
 
         uvs.push(0, 1, 1, 1, 0, 0, 1, 0);
 
@@ -164,33 +229,27 @@ export class TerrainMeshBuilder {
           colors.push(rockCol.r, rockCol.g, rockCol.b, 1.0);
         }
 
-        // Triangles du pan de mur
         indices.push(baseIdx, baseIdx + 2, baseIdx + 1);
         indices.push(baseIdx + 1, baseIdx + 2, baseIdx + 3);
       }
     };
 
-    // Bord Nord (y = 0, x croissant)
     const northEdge: [number, number][] = [];
     for (let x = 0; x < width; x++) northEdge.push([x, 0]);
     addSideWall(northEdge);
 
-    // Bord Sud (y = height - 1, x décroissant)
     const southEdge: [number, number][] = [];
     for (let x = width - 1; x >= 0; x--) southEdge.push([x, height - 1]);
     addSideWall(southEdge);
 
-    // Bord Est (x = width - 1, y croissant)
     const eastEdge: [number, number][] = [];
     for (let y = 0; y < height; y++) eastEdge.push([width - 1, y]);
     addSideWall(eastEdge);
 
-    // Bord Ouest (x = 0, y décroissant)
     const westEdge: [number, number][] = [];
     for (let y = height - 1; y >= 0; y--) westEdge.push([0, y]);
     addSideWall(westEdge);
 
-    // 3. Calcul automatique des normales
     VertexData.ComputeNormals(positions, indices, normals);
 
     const customMesh = new Mesh('terrain_diorama', scene);
@@ -202,10 +261,9 @@ export class TerrainMeshBuilder {
     vertexData.uvs = uvs;
     vertexData.applyToMesh(customMesh);
 
-    // Matériau standard avec vertex colors actifs
     const mat = new StandardMaterial('terrain_mat', scene);
-    mat.specularColor = new Color3(0.05, 0.05, 0.05); // Faible spécularité pour look mat/tabletop
-    mat.ambientColor = new Color3(0.4, 0.4, 0.4);
+    mat.specularColor = new Color3(0.04, 0.04, 0.04);
+    mat.ambientColor = new Color3(0.42, 0.42, 0.42);
     customMesh.material = mat;
 
     return customMesh;

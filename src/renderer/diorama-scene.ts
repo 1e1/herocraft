@@ -75,7 +75,12 @@ export class DioramaScene {
     this.camera.target.set(0, 0.8, 0);
   }
 
-  public loadMap(mapData: GeneratedMap, mode: DisplayMode = 'BOTW_DIORAMA'): void {
+  public loadMap(
+    mapData: GeneratedMap, 
+    mode: DisplayMode = 'BOTW_DIORAMA',
+    terraceMode = true,
+    terraceSteps = 7
+  ): void {
     this.currentMap = mapData;
 
     // Nettoyage ancien maillage
@@ -86,7 +91,15 @@ export class DioramaScene {
     this.propsRenderer.clear();
 
     // Construction du nouveau diorama
-    this.currentTerrainMesh = TerrainMeshBuilder.createTerrainMesh(this.scene, mapData, mode);
+    this.currentTerrainMesh = TerrainMeshBuilder.createTerrainMesh(
+      this.scene, 
+      mapData, 
+      mode, 
+      3.8, 
+      1.0, 
+      terraceMode, 
+      terraceSteps
+    );
 
     // Si on est en mode BotW standard, on affiche la végétation et les accessoires
     if (mode === 'BOTW_DIORAMA') {

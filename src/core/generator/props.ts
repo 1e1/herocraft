@@ -92,3 +92,4 @@ export class PropsGenerator {
     return props;
   }
 }
+

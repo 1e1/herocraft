@@ -1,20 +1,23 @@
 /**
  * HERO CRAFT — Workbench & Visual Testbed
- * Interface interactive Lil-GUI pour tester la génération déterministe, les biomes,
- * les couches de rendu et le pathfinding d'entité 2x2 en temps réel.
+ * Interface interactive Lil-GUI pour tester la topologie fonctionnelle HeroQuest,
+ * les cataclysmes géologiques, les biomes et le pathfinding 2x2.
  */
 import GUI from 'lil-gui';
 import { MapGenerator } from './core/generator/map-generator';
 import { AStarPathfinder } from './core/navigation/pathfinding';
 import { DioramaScene } from './renderer/diorama-scene';
 import { DisplayMode } from './renderer/terrain-mesh';
-import { BiomeType, GeneratedMap } from './core/types';
+import { BiomeType, CataclysmType, GeneratedMap } from './core/types';
 
 // État global du workbench
 const state = {
-  seed: 'zelda-botw-warcraft-42',
+  seed: 'zelda-heroquest-crater-42',
   chunkX: 0,
   chunkY: 0,
+  cataclysmChoice: 'RANDOM',
+  terraceMode: true,
+  terraceSteps: 7,
   biomePreset: '4_BIOMES',
   waterLevel: 0.22,
   thermalPasses: 8,
@@ -66,6 +69,11 @@ function getActiveBiomesFromPreset(preset: string): BiomeType[] {
   }
 }
 
+function getSelectedCataclysm(): CataclysmType | undefined {
+  if (state.cataclysmChoice === 'RANDOM') return undefined;
+  return state.cataclysmChoice as CataclysmType;
+}
+
 // Fonction de régénération complète
 function regenerate(): void {
   const activeBiomes = getActiveBiomesFromPreset(state.biomePreset);
@@ -74,6 +82,7 @@ function regenerate(): void {
     seed: state.seed,
     chunkX: state.chunkX,
     chunkY: state.chunkY,
+    cataclysm: getSelectedCataclysm(),
     activeBiomes,
     waterLevel: state.waterLevel,
     thermalErosionPasses: state.thermalPasses,
@@ -84,13 +93,19 @@ function regenerate(): void {
 
   heroPos = { ...currentMap.heroSpawn };
 
-  // Mise à jour de la scène 3D
-  dioramaScene.loadMap(currentMap, state.displayMode);
+  // Mise à jour de la scène 3D avec les terrasses
+  dioramaScene.loadMap(
+    currentMap, 
+    state.displayMode, 
+    state.terraceMode, 
+    state.terraceSteps
+  );
 
   // Mise à jour HUD
   const hudGen = document.getElementById('hud-gen-time');
   if (hudGen) {
-    hudGen.innerText = `${currentMap.generationDurationMs.toFixed(1)} ms`;
+    const cataName = currentMap.cataclysm.type !== 'NONE' ? ` [${currentMap.cataclysm.type}]` : '';
+    hudGen.innerText = `${currentMap.generationDurationMs.toFixed(1)} ms${cataName}`;
   }
 }
 
@@ -99,7 +114,7 @@ const gui = new GUI({ title: '🕹️ HERO CRAFT — Contrôles' });
 gui.domElement.style.width = '320px';
 
 // Dossier 1 : Déterminisme & Graines
-const fGen = gui.addFolder('1. Graine & Tectonique');
+const fGen = gui.addFolder('1. Graine & Continuité');
 const guiControllers = {
   seed: fGen.add(state, 'seed').name('Graine (Seed)').listen().onFinishChange(regenerate),
   chunkX: fGen.add(state, 'chunkX', -20, 20, 1).name('Secteur Macro X').listen().onChange(regenerate),
@@ -109,8 +124,25 @@ fGen.add(state, 'randomSeed').name('🎲 Nouvelle Graine');
 fGen.add(state, 'nextChunkEast').name('➡️ Carte Suivante (Est)');
 fGen.add(state, 'prevChunkWest').name('⬅️ Carte Précédente (Ouest)');
 
-// Dossier 2 : Biomes & Climat
-const fBio = gui.addFolder('2. Biomes & Climat');
+// Dossier 2 : Géologie & Cataclysmes
+const fGeo = gui.addFolder('2. Géologie & Cataclysmes');
+fGeo.add(state, 'cataclysmChoice', {
+  '🎲 Aléatoire': 'RANDOM',
+  '☄️ Cratère de Météorite': 'CRATER',
+  '🌋 Cône Volcanique': 'VOLCANO',
+  '⚡ Faille & Canyon (Rift)': 'RIFT',
+  '🏞️ Relief Naturel (Sans)': 'NONE'
+}).name('Événement Rare').onChange(regenerate);
+
+fGeo.add(state, 'terraceMode').name('Terrasses Warcraft III').onChange(() => {
+  dioramaScene.loadMap(currentMap, state.displayMode, state.terraceMode, state.terraceSteps);
+});
+fGeo.add(state, 'terraceSteps', 4, 12, 1).name('Paliers Terrasses').onChange(() => {
+  dioramaScene.loadMap(currentMap, state.displayMode, state.terraceMode, state.terraceSteps);
+});
+
+// Dossier 3 : Biomes & Climat
+const fBio = gui.addFolder('3. Biomes & Climat');
 fBio.add(state, 'biomePreset', {
   'Tous les 4 Biomes': '4_BIOMES',
   '1 Biome : Plaines Zelda BotW': 'PLAINS_ONLY',
@@ -121,31 +153,33 @@ fBio.add(state, 'biomePreset', {
   '2 Biomes : Forêt & Marais': 'FOREST_SWAMP'
 }).name('Sélection Biomes').onChange(regenerate);
 
-// Dossier 3 : Érosion & Relief
-const fPhys = gui.addFolder('3. Érosion & Relief');
+// Dossier 4 : Érosion & Relief
+const fPhys = gui.addFolder('4. Érosion & Relief');
 fPhys.add(state, 'waterLevel', 0.12, 0.38, 0.01).name('Niveau de l\'eau').onChange(regenerate);
 fPhys.add(state, 'thermalPasses', 0, 15, 1).name('Érosion Thermique').onChange(regenerate);
 fPhys.add(state, 'hydraulicDrops', 0, 6000, 500).name('Pluie Hydraulique').onChange(regenerate);
 fPhys.add(state, 'roughness', 0.5, 1.8, 0.1).name('Rugosité Relief').onChange(regenerate);
 fPhys.add(state, 'treeDensity', 0.02, 0.25, 0.01).name('Densité Arbres').onChange(regenerate);
 
-// Dossier 4 : Calques de Débogage & Rendu
-const fView = gui.addFolder('4. Calques de Rendu');
+// Dossier 5 : Calques de Débogage & Rendu
+const fView = gui.addFolder('5. Calques de Rendu');
 fView.add(state, 'displayMode', {
   '🎨 3D Diorama Zelda BotW': 'BOTW_DIORAMA',
+  '🏰 Salles & Couloirs HeroQuest': 'HEROQUEST_ROOMS',
+  '🪨 Lithologie & Dureté Roches': 'LITHOLOGY',
   '🗺️ Topologie Heightmap': 'HEIGHTMAP',
   '🌿 Découpage Biomes': 'BIOMES',
   '⛰️ Pentes & Falaises': 'SLOPES',
   '🚶 NavGrid Franchissable': 'WALKABLE',
   '🛡️ Clearance 2x2 Héros': 'CLEARANCE'
 }).name('Mode de Vue').onChange(() => {
-  dioramaScene.loadMap(currentMap, state.displayMode);
+  dioramaScene.loadMap(currentMap, state.displayMode, state.terraceMode, state.terraceSteps);
 });
 fView.add(state, 'resetCamera').name('🎥 Vue TV Plein Écran');
 
 // Gestion du clic pour le test interactif de Pathfinding A* 2x2
 canvas.addEventListener('pointerdown', (evt) => {
-  if (evt.button !== 0 || isHeroMoving) return; // Seulement clic gauche
+  if (evt.button !== 0 || isHeroMoving) return;
 
   const clickedCoord = dioramaScene.pickGridCoordinates(evt.clientX, evt.clientY);
   if (!clickedCoord) return;
@@ -153,12 +187,10 @@ canvas.addEventListener('pointerdown', (evt) => {
   const targetX = clickedCoord.x;
   const targetY = clickedCoord.y;
 
-  // Extraction des matrices pour le pathfinder
   const clearance = currentMap.tiles.map(row => row.map(t => t.clearance));
   const elevation = currentMap.tiles.map(row => row.map(t => t.elevation));
   const shallowWater = currentMap.tiles.map(row => row.map(t => t.isShallowWater));
 
-  // Exécution du pathfinder A* pour Héros 2x2
   const pathResult = AStarPathfinder.findPath(
     heroPos.x,
     heroPos.y,
@@ -167,7 +199,7 @@ canvas.addEventListener('pointerdown', (evt) => {
     clearance,
     elevation,
     shallowWater,
-    2 // Empreinte 2x2 [SPEC-MAP-003]
+    2
   );
 
   const hudPath = document.getElementById('hud-path-time');
@@ -182,10 +214,8 @@ canvas.addEventListener('pointerdown', (evt) => {
   }
 
   if (pathResult.found && pathResult.path.length > 1) {
-    // Tracé du ruban 3D lumineux
     dioramaScene.getPropsRenderer().renderPathRibbon(pathResult.path, currentMap);
 
-    // Déplacement animé du pion 2x2 pas à pas
     isHeroMoving = true;
     let stepIndex = 1;
 
