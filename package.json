@@ -1,0 +1,20 @@
+{
+  "name": "herocraft",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^7.50.0",
+    "@babylonjs/loaders": "^7.50.0",
+    "lil-gui": "^0.20.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vite": "^6.2.0"
+  }
+}
